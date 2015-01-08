@@ -32,16 +32,18 @@
 
 #define VIDEO_SHIFT_DELAY         70
 
+#define ALARM_TIME                1800
+#define SNOOZE_TIME               255
+
 #define keyNOKEY                  0x00
 #define keyKEY1                   0x01
 #define keyKEY2                   0x02
 #define keyTIMEOUT                0x40
 
 #define evSECOND_HAS_CHANGED      (0x01)
-#define evMINUT_HAS_CHANGED       (0x02 | evSECOND_HAS_CHANGED)
-#define evHOUR_HAS_CHANGED        (0x04 | evMINUT_HAS_CHANGED)
-#define evDAY_HAS_CHANGED         (0x08 | evHOUR_HAS_CHANGED)
-#define evTIME_HAS_CHANGED        (0x00 | evDAY_HAS_CHANGED)
+#define evMINUTE_HAS_CHANGED      (0x02 | evSECOND_HAS_CHANGED)
+#define evHOUR_HAS_CHANGED        (0x04 | evMINUTE_HAS_CHANGED)
+#define evTIME_HAS_CHANGED        (0x00 | evHOUR_HAS_CHANGED)
 #define evTIME_HASNOT_CHANGED     0x00
 
 #define blnkDIGIT1                0x01
@@ -73,16 +75,16 @@ sbit Keys          = P3^7;
 sbit Spkr          = P3^0;
 sbit Device        = P3^1;
 
-code BYTE DECODE[11] = { 0x0A, 0xFA, 0x1C, 0x98, 0xE8, 0x89, 0x09, 0xBA, 0x08, 0xA8, 0xFF};
-code BYTE MSG_ADD_STEP[] = {0x28, 0x58, 0x58, 0xff, 0x89, 0x4d};
-code BYTE MSG_SET_TIME[] = {0x89, 0x0d, 0x4d, 0xff, 0x4d, 0xfb};
+code BYTE DECODE[10] = { 0x0A, 0xFA, 0x1C, 0x98, 0xE8, 0x89, 0x09, 0xBA, 0x08, 0xA8};
+code BYTE MSG_ADD[] = {0x28, 0x58, 0x58};
+code BYTE MSG_SET[] = {0x89, 0x0d, 0x4d};
 code BYTE MSG_SXX_XXX_XXXX[] = {0x89};
 
 BYTE CurrentSecond      = 0;
 WORD CurrentSecondParts = 0;
 BYTE DelayCounter       = 0;
-BYTE SpkrCounter        = 0;
-BYTE DeviceCounter      = 0;
+WORD SpkrCounter        = 0;
+BYTE SnoozeCounter      = 0;
 
 TIME CurrentTime        = {0,0};
 
@@ -100,7 +102,7 @@ BOOL VideoMode                  = 0;
 BYTE VideoScanState             = 0;
 BYTE VideoScanMask              = 0x11;
 BOOL Flasher                    = FALSE;
-BYTE TimeEvent                  = evTIME_HAS_CHANGED;
+BOOL TimeChanged                = 1;
 
 BYTE KeyPressed                 = keyNOKEY;
 BYTE CurrentKeyDown             = keyNOKEY;
@@ -108,37 +110,38 @@ BYTE KeysRepeatDelayCounter    = KEYS_REPEAT_DELAY;
 
 TIMER0
 {
-	if (SpkrCounter > 0) Spkr = 0;
-	else Spkr = 1;
-    
-    if (DeviceCounter > 0) Device = 0;
-    else Device = 1;
-	
 	CurrentSecondParts += 12;
 	if ( CurrentSecondParts >= 16000){
 	   Flasher = FALSE;
 	   CurrentSecondParts -= 16000;
 	   CurrentSecond++;
-	   if (SpkrCounter > 0) SpkrCounter--;
-       if (DeviceCounter > 0) DeviceCounter--;
+	   if (SnoozeCounter != 0){
+           SnoozeCounter--;
+           SpkrCounter = ALARM_TIME;
+       } else {
+           if (SpkrCounter != 0){
+               SpkrCounter--;
+           }
+       }
 	   if (DelayCounter > 0) DelayCounter--;
 	   if (CurrentSecond >= 60){
-		  CurrentSecond = 0;
-		  CurrentTime.Minute++;
-		  if ( CurrentTime.Minute >= 60){
-			 CurrentTime.Minute = 0;
-			 CurrentTime.Hour++;
-			 if (CurrentTime.Hour >= 24) {
-				CurrentTime.Hour = 0;
-				TimeEvent = evDAY_HAS_CHANGED;
-				}
-			 else TimeEvent = evHOUR_HAS_CHANGED;
-			 }
-		  else TimeEvent = evMINUT_HAS_CHANGED;
-		  }
-	   else TimeEvent = evSECOND_HAS_CHANGED;
-	   }
-	else if (CurrentSecondParts > 4000) Flasher = TRUE;
+           TimeChanged = 1;
+           CurrentSecond = 0;
+           CurrentTime.Minute++;
+           if ( CurrentTime.Minute >= 60){
+               CurrentTime.Minute = 0;
+               CurrentTime.Hour++;
+               if (CurrentTime.Hour >= 24) CurrentTime.Hour = 0;
+           }
+           {
+                register BYTE i;
+                for(i = 0; i < StepsCount; i++) if (( StepsTimes[i].Hour == CurrentTime.Hour) && ( StepsTimes[i].Minute == CurrentTime.Minute)) SpkrCounter = ALARM_TIME;
+           }
+       }
+	} else if (CurrentSecondParts > 4000) Flasher = TRUE;
+
+	if ((SnoozeCounter == 0) && (SpkrCounter > 0)) Spkr = Flasher;
+	else Spkr = 1;
 }
 
 TIMER1
@@ -150,25 +153,12 @@ TIMER1
 
     if (VideoScanMask){
         if (!VideoMode){
-            BOOL DigitIsOn;
-            BOOL DotIsOn;
-            
-            BYTE DigitMask = VideoDigits[VideoScanState] | ~0xf7;
-            BYTE DotMask = VideoDigits[VideoScanState] | 0xf7;
-            
-            if (Flasher) {
-                DigitIsOn = TRUE;
-                DotIsOn = TRUE;
-            } else {
+            VideoOut = VideoDigits[VideoScanState];
+            if (!Flasher) {
                 register TestMask = (VideoScanMask & VideoBlinkMask);
-                DigitIsOn = ((TestMask & 0x0f) == 0x00);
-                DotIsOn = ((TestMask & 0xf0) == 0x00);
+                if (TestMask & 0x0f) VideoOut |= 0xf7;
+                if (TestMask & 0xf0) VideoOut |= ~0xf7;
             }
-            
-            if (DigitIsOn) VideoOut = DigitMask;
-            else VideoOut = 0xff;
-            
-            if (DotIsOn) VideoOut &= DotMask;
         } else {
             VideoOut = VideoDigits[ VideoOffset + VideoScanState];
             if (VideoShiftTimer > 0) VideoShiftTimer --;
@@ -247,7 +237,7 @@ TIMER1
 
 				switch ( KeysStatus){
 					case ~0x04:
-						 CurrentKeyDown = keyKEY1;
+ 						 CurrentKeyDown = keyKEY1;
 						 break;
 					case ~0x08:
 						 CurrentKeyDown = keyKEY2;
@@ -260,9 +250,14 @@ TIMER1
 			if (CurrentKeyDown == keyNOKEY) KeysRepeatDelayCounter = 0;
 			else if ( KeysRepeatDelayCounter > 0) KeysRepeatDelayCounter--;
 				 else if ( KeyPressed == keyNOKEY) {
-						 KeysRepeatDelayCounter = KEYS_REPEAT_DELAY;
-						 KeyPressed = CurrentKeyDown;
-						 }
+                         if (SnoozeCounter != 0) {
+                             SnoozeCounter = 0;
+                             SpkrCounter = 0;
+                         } else if (SpkrCounter != 0){
+                             SnoozeCounter = SNOOZE_TIME;
+                         } else KeyPressed = CurrentKeyDown;
+    					 KeysRepeatDelayCounter = KEYS_REPEAT_DELAY;
+					 }
 	}
 }
 
@@ -381,7 +376,7 @@ VOID Menu1( VOID)
 
 AddStep:
     if ( StepsCount < MAX_STEPS){
-        SetShiftVideoMode( sizeof(MSG_ADD_STEP), sizeof(MSG_ADD_STEP), MSG_ADD_STEP);
+        SetShiftVideoMode( 4, sizeof(MSG_ADD), MSG_ADD);
         Key = WaitKey( 30);
         if ( Key == keyKEY1) {
             StepsTimes[StepsCount].Hour = 0;
@@ -395,7 +390,7 @@ AddStep:
     }
 
 SetTime:
-    SetShiftVideoMode( sizeof(MSG_SET_TIME), sizeof(MSG_SET_TIME), MSG_SET_TIME);
+    SetShiftVideoMode( 4, sizeof(MSG_SET), MSG_SET);
     Key = WaitKey( 30);
     if ( Key == keyKEY1) {
         TIME Time;
@@ -408,12 +403,6 @@ SetTime:
         goto End;
     } else if (Key == keyTIMEOUT) goto End;
     
- 
-/*
-    SetShiftVideoMode( sizeof(MSG_END), sizeof(MSG_END), MSG_END);
-    Key = WaitKey( 30);
-    if (( Key == keyKEY1) || ( Key == keyTIMEOUT)) goto End;
-*/    
     {
         BYTE i;
         for ( i = 0; i < StepsCount; i++){
@@ -471,18 +460,17 @@ main()
 		KeyPressed = keyNOKEY;
 		
 		do {
-			if (TimeEvent & evMINUT_HAS_CHANGED){
+			if (TimeChanged){
                 VideoBlinkMask = 0x20;
                 DisplayTime( &CurrentTime);
+                TimeChanged = 0;
             }
 		   } while (KeyPressed == keyNOKEY);
            
         switch (ReadKey()){
-            case keyKEY1:
-                break;
             case keyKEY2:
                 Menu1();
-                TimeEvent  = evTIME_HAS_CHANGED;
+                TimeChanged  = 1;
                 break;
         }
 	}
