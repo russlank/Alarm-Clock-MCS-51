@@ -1,3 +1,6 @@
+#pragma SMALL DEBUG CODE LISTINCLUDE NOINTVECTOR
+
+
 #include <reg51.h>
 #include <intrins.h>
 
@@ -72,10 +75,9 @@ sbit Keys          = P3^7;
 sbit Spkr          = P3^0;
 sbit Device        = P3^1;
 
-code BYTE DECODE[14] = { 0x0A, 0xFA, 0x1C, 0x98, 0xE8, 0x89, 0x09, 0xBA, 0x08, 0xA8, 0xFF, 0x59, 0x2d, 0x79};
-code BYTE MSG_SHIFT_ON_OFF[] = {0x89, 0x68, 0xfb, 0x2d, 0x4d, 0xff, 0x59, 0x79, 0xff, 0x59, 0x2d, 0x2d};
-code BYTE MSG_ADD_ALARM[] = {0x28, 0x58, 0x58, 0xff, 0x28, 0x4f, 0x28, 0x7d};
-code BYTE MSG_ADD_STEP[] = {0x28, 0x58, 0x58, 0xff, 0x89, 0x4d, 0x0d, 0x2c};
+code BYTE DECODE[11] = { 0x0A, 0xFA, 0x1C, 0x98, 0xE8, 0x89, 0x09, 0xBA, 0x08, 0xA8, 0xFF};
+code BYTE MSG_ADD_ALARM[] = {0x28, 0x58, 0x58, 0xff, 0x28, 0x4f};
+code BYTE MSG_ADD_STEP[] = {0x28, 0x58, 0x58, 0xff, 0x89, 0x4d};
 code BYTE MSG_SET_TIME[] = {0x89, 0x0d, 0x4d, 0xff, 0x4d, 0xfb};
 code BYTE MSG_END[] = {0x0d, 0x79, 0x58, 0xff};
 code BYTE MSG_AXX_XXXX[] = {0x28,0xff,0xff,0xff,0xff,0xff,0xff,0xff};
@@ -437,8 +439,6 @@ SetTime:
     Key = WaitKey( 30);
     if (( Key == keyKEY1) || ( Key == keyTIMEOUT)) goto End;
     
-
-/*
     {
         BYTE i;
         for ( i = 0; i < AlarmsCount; i++){
@@ -454,7 +454,7 @@ RepAlarm:
                     BYTE j;
                     for( j = i; j < AlarmsCount - 1; j++) AlarmsTimes[j] = AlarmsTimes[j + 1];
                     AlarmsCount--;
-                    if ((i >= AlarmsCount) & (i > 0)) {
+                    if ((i >= AlarmsCount) && (i > 0)) {
                         i--;
                         goto RepAlarm;
                     } else goto AddAlarm;
@@ -462,9 +462,9 @@ RepAlarm:
             } else if (Key == keyTIMEOUT) goto End;
         }
     }
-*/
-/*
+
     {
+        BYTE i;
         for ( i = 0; i < StepsCount; i++){
 RepStep:
             
@@ -484,7 +484,7 @@ RepStep:
                     BYTE j;
                     for( j = i; j < StepsCount - 1; j++) StepsTimes[j] = StepsTimes[j + 1];
                     StepsCount--;
-                    if ((i >= StepsCount) & (i > 0)) {
+                    if ((i >= StepsCount) && (i > 0)) {
                         i--;
                         goto RepStep;
                     } else goto AddStep;
@@ -492,7 +492,7 @@ RepStep:
             } else if (Key == keyTIMEOUT) goto End;
         }
     }
-*/    
+
 End:;
 }
 
